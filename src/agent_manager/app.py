@@ -645,3 +645,26 @@ def run(default_cmd="claude", prefix="ctrl+space"):
     conn.close()
     if not app.server_gone and app.agents:
         print(f"Detached - {len(app.agents)} agent(s) still running. `herd app` to reattach.")
+
+
+class KeyLogApp(App):
+    """`herd keys`: shows what Textual receives for each keypress, to debug shortcuts."""
+
+    ENABLE_COMMAND_PALETTE = False
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import RichLog
+
+        yield Label(" Press keys to see what herd receives. Ctrl+Q quits.")
+        yield RichLog()
+
+    def on_key(self, event):
+        from textual.widgets import RichLog
+
+        event.stop()
+        event.prevent_default()
+        self.query_one(RichLog).write(f"key={event.key!r}  character={event.character!r}  aliases={event.aliases}")
+
+
+def keys():
+    KeyLogApp().run()
