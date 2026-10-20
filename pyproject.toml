@@ -1,0 +1,23 @@
+[project]
+name = "agent-manager"
+version = "0.1.0"
+description = "A small herdr-style workspace for Claude Code agents"
+readme = "README.md"
+authors = [
+    { name = "Jared Bottom" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "ptyprocess>=0.7.0 ; sys_platform != 'win32'",
+    "pyte>=0.8.2",
+    "pywinpty>=3.1.0 ; sys_platform == 'win32'",
+    "textual>=8.2.8",
+]
+
+[project.scripts]
+herd = "agent_manager.cli:main"
+agent-manager = "agent_manager.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
