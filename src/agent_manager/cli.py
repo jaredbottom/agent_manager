@@ -5,7 +5,7 @@ Usage:
     herd app [--prefix KEY] open (or reattach to) the herd window
     herd stop               stop the background server and all its agents
     herd ls                 print agent states once
-    herd keys               show what herd receives for each keypress (debugging)
+    herd check-keys         inspect shortcut input in a temporary window
     herd clear              forget all recorded sessions
     herd hook               (called by Claude Code hooks, reads JSON on stdin)
 """
@@ -163,10 +163,10 @@ def cmd_app(args):
     app.run(args.cmd, args.prefix)
 
 
-def cmd_keys(_args):
+def cmd_check_keys(_args):
     from agent_manager import app
 
-    app.keys()
+    app.check_keys()
 
 
 def cmd_stop(_args):
@@ -204,7 +204,7 @@ def main():
     sub.add_parser("stop").set_defaults(func=cmd_stop)
     sub.add_parser("server", help="run the server in the foreground (for debugging)").set_defaults(func=cmd_server)
 
-    sub.add_parser("keys", help="show what herd receives for each keypress").set_defaults(func=cmd_keys)
+    sub.add_parser("check-keys", help="inspect shortcut input in a temporary window").set_defaults(func=cmd_check_keys)
 
     p = sub.add_parser("app")
     p.add_argument("--cmd", default="", help="startup command for new tabs (default: an interactive shell)")

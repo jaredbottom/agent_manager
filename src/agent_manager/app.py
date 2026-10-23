@@ -643,15 +643,16 @@ def run(default_cmd="", prefix="ctrl+space"):
         print(f"Detached - {len(app.agents)} agent(s) still running. `herd app` to reattach.")
 
 
-class KeyLogApp(App):
-    """`herd keys`: shows what Textual receives for each keypress, to debug shortcuts."""
+class ShortcutCheckApp(App):
+    """`herd check-keys`: inspect shortcut input in the current window."""
 
+    TITLE = "herd shortcut check"
     ENABLE_COMMAND_PALETTE = False
 
     def compose(self) -> ComposeResult:
         from textual.widgets import RichLog
 
-        yield Label(" Press keys to see what herd receives. Ctrl+Q quits.")
+        yield Label(" Check a shortcut here. Nothing is saved. Ctrl+Q quits.")
         yield RichLog()
 
     def on_key(self, event):
@@ -662,5 +663,5 @@ class KeyLogApp(App):
         self.query_one(RichLog).write(f"key={event.key!r}  character={event.character!r}  aliases={event.aliases}")
 
 
-def keys():
-    KeyLogApp().run()
+def check_keys():
+    ShortcutCheckApp().run()

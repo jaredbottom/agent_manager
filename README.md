@@ -73,10 +73,11 @@ Everything goes through a prefix, like tmux/herdr: press **Ctrl+Space**, then:
 Press the prefix twice to send it to the agent. Every other key goes straight to the agent.
 To use a different prefix: `herd app --prefix "ctrl+]"` (or `ctrl+b`, `ctrl+\`, ...).
 
-If Ctrl+Space does nothing in Windows Terminal, run `herd keys` and press it once.
+If Ctrl+Space does nothing in Windows Terminal, run `herd check-keys` and press it once.
 If no key line appears, the terminal is not sending that combination to herd. Try
 `herd app --prefix ctrl+b`, or update Windows Terminal. Press Ctrl+Q to leave
-`herd keys`. The **C** command is Shift+C; lowercase **c** opens a tab.
+`herd check-keys`. This check displays input only in its own window and does not
+save it. The **C** command is Shift+C; lowercase **c** opens a tab.
 
 ## States
 
