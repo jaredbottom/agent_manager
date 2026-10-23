@@ -70,13 +70,35 @@ def suggested_space_name(cwd):
     return Path(cwd).name or "workspace"
 
 
-class TermScreen(pyte.HistoryScreen):
-    """pyte screen that answers terminal queries (cursor position etc.) back to the agent."""
+class TermScreen:
+    """Keep full-screen programs off the shell's screen and scrollback."""
+
+    ALTERNATE_MODES = {47, 1047, 1049}
 
     def __init__(self, columns, lines, reply):
-        super().__init__(columns, lines, history=SCROLLBACK, ratio=0.5)
+        self.main = pyte.HistoryScreen(columns, lines, history=SCROLLBACK, ratio=0.5)
+        self.alternate = pyte.Screen(columns, lines)
+        self.active = self.main
         self._reply = reply
+        self.main.write_process_input = reply
+        self.alternate.write_process_input = reply
         self.cwd = None
+
+    def __getattr__(self, name):
+        value = getattr(self.active, name)
+        if not callable(value):
+            return value
+
+        # pyte caches event handlers when it attaches a screen. Resolve the
+        # active buffer when each event arrives, including within one chunk.
+        def forward(*args, **kwargs):
+            return getattr(self.active, name)(*args, **kwargs)
+
+        return forward
+
+    @property
+    def in_alternate(self):
+        return self.active is self.alternate
 
     def write_process_input(self, data):
         self._reply(data)
@@ -90,7 +112,54 @@ class TermScreen(pyte.HistoryScreen):
             if cwd:
                 self.cwd = cwd
         else:
-            super().set_title(param)
+            self.active.set_title(param)
+
+    def set_mode(self, *modes, **kwargs):
+        if kwargs.get("private") and self.ALTERNATE_MODES.intersection(modes):
+            if not self.in_alternate:
+                if self.ALTERNATE_MODES.intersection(modes) != {47}:
+                    self.alternate.reset()
+                self.active = self.alternate
+        self.active.set_mode(*modes, **kwargs)
+
+    def reset_mode(self, *modes, **kwargs):
+        self.active.reset_mode(*modes, **kwargs)
+        if kwargs.get("private") and self.ALTERNATE_MODES.intersection(modes):
+            self.active = self.main
+
+    def reset(self):
+        self.main.reset()
+        self.alternate.reset()
+        self.active = self.main
+
+    def resize(self, lines, columns):
+        self.main.resize(lines, columns)
+        self.alternate.resize(lines, columns)
+
+    def scroll_up(self, count=1):
+        screen = self.active
+        top, bottom = screen.margins or (0, screen.lines - 1)
+        old_y = screen.cursor.y
+        screen.cursor.y = bottom
+        for _ in range(min(count or 1, bottom - top + 1)):
+            screen.index()
+        screen.cursor.y = old_y
+
+    def scroll_down(self, count=1):
+        screen = self.active
+        top, bottom = screen.margins or (0, screen.lines - 1)
+        old_y = screen.cursor.y
+        screen.cursor.y = top
+        for _ in range(min(count or 1, bottom - top + 1)):
+            screen.reverse_index()
+        screen.cursor.y = old_y
+
+
+class TermStream(pyte.Stream):
+    """Parse the scroll controls emitted by some Windows console programs."""
+
+    csi = {**pyte.Stream.csi, "S": "scroll_up", "T": "scroll_down"}
+    events = pyte.Stream.events | {"scroll_up", "scroll_down"}
 
 
 class Agent:
@@ -106,7 +175,7 @@ class Agent:
         self.version = 0  # bumped whenever the screen changes
         self.lock = threading.Lock()
         self.screen = TermScreen(80, 24, self.write)
-        self.stream = pyte.Stream(self.screen)
+        self.stream = TermStream(self.screen)
         self.proc = None
 
     def argv(self):
@@ -210,7 +279,7 @@ class Agent:
         """The visible screen (or a scrolled-back view) as rows of (text, style) runs."""
         with self.lock:
             screen = self.screen
-            history = screen.history.top
+            history = screen.main.history.top if not screen.in_alternate else ()
             offset = min(offset, len(history))
             show_cursor = offset == 0 and not screen.cursor.hidden
             rows = []

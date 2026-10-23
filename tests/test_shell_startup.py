@@ -17,6 +17,37 @@ from agent_manager.app import FormDialog, HerdApp
 
 
 class ShellTests(unittest.TestCase):
+    def test_full_screen_program_restores_shell_screen(self):
+        agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+        agent.stream.feed("shell prompt")
+        agent.stream.feed("\x1b[?1049h\x1b[Hfull screen")
+        alternate = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
+        self.assertIn("full screen", alternate)
+        self.assertNotIn("shell prompt", alternate)
+
+        agent.stream.feed("\x1b[?1049l")
+        restored = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
+        self.assertIn("shell prompt", restored)
+        self.assertNotIn("full screen", restored)
+
+    def test_alternate_screen_does_not_pollute_scrollback(self):
+        agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+        agent.stream.feed("\x1b[?1049h")
+        for index in range(30):
+            agent.stream.feed(f"full-screen line {index}\r\n")
+        self.assertEqual(agent.snapshot(100)["history"], 0)
+        agent.stream.feed("\x1b[?1049l")
+        self.assertEqual(agent.snapshot(100)["history"], 0)
+
+    def test_scroll_up_control_moves_old_output_off_screen(self):
+        agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+        agent.stream.feed("old output")
+        agent.stream.feed("\x1b[24S\x1b[Hnew prompt")
+        visible = "".join(run[0] for row in agent.snapshot(0)["rows"] for run in row)
+        self.assertIn("new prompt", visible)
+        self.assertNotIn("old output", visible)
+        self.assertGreater(agent.snapshot(0)["history"], 0)
+
     @unittest.skipIf(os.name == "nt", "uses a POSIX shell")
     def test_blank_command_starts_interactive_shell(self):
         with tempfile.TemporaryDirectory() as directory:
