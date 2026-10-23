@@ -513,7 +513,7 @@ class HerdApp(App):
             return
         command = self.default_cmd
         self.send("create", space["id"], command.split()[0] if command.strip() else "shell",
-                  space["cwd"], command)
+                  space["cwd"], command, self.selected_id)
 
     def _step_tab(self, delta):
         ids = [t["id"] for t in self.tabs(self.space_id)]
@@ -555,7 +555,7 @@ class HerdApp(App):
     def action_new_space(self):
         space = self.current_space()
         cwd = space["cwd"] if space else os.getcwd()
-        self.send("create_space", "", cwd, self.default_cmd)
+        self.send("create_space", "", cwd, self.default_cmd, self.selected_id)
 
     def action_new_space_in_folder(self):
         space = self.current_space()

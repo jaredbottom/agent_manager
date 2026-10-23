@@ -27,16 +27,19 @@ working, blocked, or done. The terminal workspace works without those hooks.
 you switch between `uv tool install` and `uv run` (it replaces its old hooks).
 
 In `herd app`, press Ctrl+Space then Shift+C to create a space immediately. The
-first space uses the folder where you launched herd; later spaces use the selected
-space's folder. Press Ctrl+Space then `c` to open another shell tab immediately.
+first space uses the folder where you launched herd; later spaces follow the
+selected shell's current folder, including after `cd`. Press Ctrl+Space then `c`
+to open another shell tab in that folder immediately.
 To choose a different folder, press Ctrl+Space then Shift+F. On Windows, herd
 uses PowerShell (or `pwsh` if installed); on Linux/macOS, it uses `$SHELL`.
+If herd cannot read a shell's current folder, it uses the space's starting folder.
 
 Spaces are named for the Git branch when it is neither `main` nor `master`.
 On `main`, `master`, or a detached HEAD, they use the repository folder's name.
 Outside Git, or if Git is unavailable, they use the working folder's name (or
 `workspace` for a filesystem root). Repeated names get a number, such as
 `project (2)`. You can rename a space with Shift+W.
+Changing folders does not rename an existing space; it affects spaces created afterward.
 
 If you prefer a startup command, use `herd app --cmd claude`, or enter one in
 the Shift+F form. Leave the command field blank to open a shell.

@@ -3,6 +3,8 @@
 Started automatically by `herd app`; stopped with `herd stop` (or prefix then Q in the app).
 """
 
+import base64
+import binascii
 import json
 import os
 import shutil
@@ -25,6 +27,27 @@ else:  # lets herd run on Linux/macOS too, handy for development
 HERD_DIR = HERD_HOME / "sessions"
 SCROLLBACK = 10000
 BRACKETED_PASTE = 2004 << 5  # how pyte stores private mode ?2004
+CWD_TITLE_PREFIX = "herd-cwd-v1:"
+POWERSHELL_CWD_PROMPT = """
+$global:__herd_original_prompt = (Get-Command prompt -CommandType Function).ScriptBlock
+function global:prompt {
+    $original = & $global:__herd_original_prompt
+    try {
+        $cwd = $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($cwd))
+        [Console]::Write("$([char]27)]2;herd-cwd-v1:$encoded$([char]7)")
+    } catch {}
+    return $original
+}
+"""
+
+
+def encoded_powershell_prompt():
+    return base64.b64encode(POWERSHELL_CWD_PROMPT.encode("utf-16le")).decode("ascii")
+
+
+def powershell_command(shell):
+    return f"{shell} -NoExit -EncodedCommand {encoded_powershell_prompt()}"
 
 
 def suggested_space_name(cwd):
@@ -53,9 +76,21 @@ class TermScreen(pyte.HistoryScreen):
     def __init__(self, columns, lines, reply):
         super().__init__(columns, lines, history=SCROLLBACK, ratio=0.5)
         self._reply = reply
+        self.cwd = None
 
     def write_process_input(self, data):
         self._reply(data)
+
+    def set_title(self, param):
+        if param.startswith(CWD_TITLE_PREFIX):
+            try:
+                cwd = base64.b64decode(param[len(CWD_TITLE_PREFIX):], validate=True).decode("utf-8")
+            except (binascii.Error, UnicodeError):
+                return
+            if cwd:
+                self.cwd = cwd
+        else:
+            super().set_title(param)
 
 
 class Agent:
@@ -78,11 +113,14 @@ class Agent:
         if not self.command.strip():
             if os.name == "nt":
                 if shutil.which("pwsh"):
-                    return "pwsh"
+                    return powershell_command("pwsh")
                 if shutil.which("powershell"):
-                    return "powershell"
+                    return powershell_command("powershell")
                 return os.environ.get("COMSPEC", "cmd.exe")
-            return [os.environ.get("SHELL") or "/bin/sh"]
+            shell = os.environ.get("SHELL") or "/bin/sh"
+            if Path(shell).name in {"pwsh", "powershell"}:
+                return [shell, "-NoExit", "-EncodedCommand", encoded_powershell_prompt()]
+            return [shell]
         if os.name == "nt":
             resolved = shutil.which(self.command.split()[0])
             # npm installs claude as a .cmd shim, which has to go through cmd.exe
@@ -125,6 +163,20 @@ class Agent:
         if BRACKETED_PASTE in self.screen.mode:
             text = f"\x1b[200~{text}\x1b[201~"
         self.write(text)
+
+    def current_cwd(self):
+        with self.lock:
+            reported = self.screen.cwd
+        if reported and os.path.isdir(reported):
+            return reported
+        if os.name != "nt" and self.alive and self.proc:
+            try:
+                path = os.readlink(f"/proc/{self.proc.pid}/cwd")
+                if os.path.isdir(path):
+                    return path
+            except OSError:
+                pass
+        return self.cwd
 
     def resize(self, rows, cols):
         with self.lock:
@@ -259,7 +311,11 @@ class Server:
             for agent in list(self.agents.values()):
                 agent.resize(*self.size)
         elif kind == "create_space":  # a new space, with a first tab running `command`
-            name, cwd, command = args
+            name, cwd, command, *source_ids = args
+            if source_ids:
+                source = self.agents.get(source_ids[0])
+                if source:
+                    cwd = source.current_cwd()
             base_name = name.strip() or suggested_space_name(cwd)
             with self.lock:
                 used_names = {sp["name"] for sp in self.spaces}
@@ -278,10 +334,14 @@ class Server:
                     self.spaces.remove(space)
                 raise
         elif kind == "create":
-            space_id, name, cwd, command = args
+            space_id, name, cwd, command, *source_ids = args
             space = next((sp for sp in self.spaces if sp["id"] == space_id), None)
             if space is None:
                 raise ValueError("that space no longer exists")
+            if source_ids:
+                source = self.agents.get(source_ids[0])
+                if source and source.space["id"] == space_id:
+                    cwd = source.current_cwd()
             self._create_agent(client, space, name, cwd, command)
         elif kind == "rename":
             agent = self.agents.get(args[0])

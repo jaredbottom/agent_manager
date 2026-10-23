@@ -1,5 +1,6 @@
 """The default workspace should open a usable shell without a command."""
 
+import base64
 import os
 import shutil
 import subprocess
@@ -39,11 +40,53 @@ class ShellTests(unittest.TestCase):
         windows = SimpleNamespace(name="nt", environ={"COMSPEC": "cmd.exe"})
         with patch.object(server, "os", windows):
             with patch.object(server.shutil, "which", side_effect=lambda name: name if name == "pwsh" else None):
-                self.assertEqual(agent.argv(), "pwsh")
+                command = agent.argv()
+                self.assertTrue(command.startswith("pwsh -NoExit -EncodedCommand "))
+                encoded = command.split()[-1]
+                self.assertIn("function global:prompt", base64.b64decode(encoded).decode("utf-16le"))
             with patch.object(server.shutil, "which", side_effect=lambda name: name if name == "powershell" else None):
-                self.assertEqual(agent.argv(), "powershell")
+                self.assertTrue(agent.argv().startswith("powershell -NoExit -EncodedCommand "))
             with patch.object(server.shutil, "which", return_value=None):
                 self.assertEqual(agent.argv(), "cmd.exe")
+
+    def test_shell_reports_cwd_through_terminal_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+            encoded = base64.b64encode(directory.encode()).decode()
+            sequence = f"\x1b]2;{server.CWD_TITLE_PREFIX}{encoded}\x07"
+            agent.stream.feed(sequence[:12])
+            agent.stream.feed(sequence[12:])
+            self.assertEqual(agent.current_cwd(), directory)
+
+    @unittest.skipIf(os.name == "nt", "uses /proc to read a POSIX shell")
+    @unittest.skipUnless(shutil.which("git"), "Git is needed for repository naming")
+    def test_current_cwd_follows_cd(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "other-repo"
+            target.mkdir()
+            subprocess.run(["git", "-C", str(target), "init", "-q", "-b", "feature/other"], check=True)
+            space = {"id": "space", "name": "project", "cwd": directory}
+            agent = server.Agent(space, "shell", directory, "")
+            with patch.dict(os.environ, {"SHELL": "/bin/sh"}):
+                agent.start(24, 80)
+            try:
+                agent.write("cd other-repo\n")
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline and agent.current_cwd() != str(target):
+                    time.sleep(0.02)
+                self.assertEqual(agent.current_cwd(), str(target))
+
+                manager = server.Server()
+                manager.spaces.append(space)
+                manager.agents[agent.id] = agent
+                with patch.object(manager, "_create_agent") as create:
+                    manager.handle(None, ("create_space", "", directory, "", agent.id))
+                    manager.handle(None, ("create", "space", "shell", directory, "", agent.id))
+                self.assertEqual(manager.spaces[1]["cwd"], str(target))
+                self.assertEqual(manager.spaces[1]["name"], "feature/other")
+                self.assertEqual(create.call_args.args[3], str(target))
+            finally:
+                agent.kill()
 
     def test_shell_returns_to_idle_after_claude_session_ends(self):
         agent = server.Agent({"id": "s", "name": "s", "cwd": "."}, "shell", ".", "")
@@ -102,21 +145,22 @@ class NewTabTests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test(size=(100, 30)) as pilot:
                 app.on_server_message(("state", {
                     "spaces": [{"id": "space", "name": "project", "cwd": "/tmp"}],
-                    "agents": [],
+                    "agents": [{"id": "agent", "space": "space", "name": "shell",
+                                "cwd": "/tmp", "state": "idle", "since": 0}],
                 }))
                 await pilot.press("ctrl+space", "c")
                 await pilot.pause()
                 messages = []
                 while back.poll():
                     messages.append(back.recv())
-                self.assertIn(("create", "space", "shell", "/tmp", ""), messages)
+                self.assertIn(("create", "space", "shell", "/tmp", "", "agent"), messages)
                 self.assertNotIsInstance(app.screen, FormDialog)
                 await pilot.press("ctrl+space", "C")
                 await pilot.pause()
                 messages = []
                 while back.poll():
                     messages.append(back.recv())
-                self.assertIn(("create_space", "", "/tmp", ""), messages)
+                self.assertIn(("create_space", "", "/tmp", "", "agent"), messages)
         finally:
             front.close()
             back.close()
@@ -131,7 +175,7 @@ class NewTabTests(unittest.IsolatedAsyncioTestCase):
                 messages = []
                 while back.poll():
                     messages.append(back.recv())
-                self.assertIn(("create_space", "", os.getcwd(), ""), messages)
+                self.assertIn(("create_space", "", os.getcwd(), "", None), messages)
                 self.assertNotIsInstance(app.screen, FormDialog)
                 await pilot.press("ctrl+space", "F")
                 self.assertIsInstance(app.screen, FormDialog)
