@@ -127,20 +127,20 @@ class TerminalView(Widget, can_focus=True):
         snap = self.snapshot
         if snap is None:
             if y == 1 and not self.app.spaces:
-                hint = f"  No spaces yet. Press {self.app.prefix} then N to create one."
-                return Strip([Segment(hint)]).adjust_cell_length(width)
+                hint = f"  No spaces yet. Press {self.app.prefix} then Shift+C to create one."
+                return Strip([Segment(hint, Style())]).adjust_cell_length(width, Style())
             if y == 1 and self.app.selected_id is None:
                 hint = f"  No tabs in this space. Press {self.app.prefix} then c to open one."
-                return Strip([Segment(hint)]).adjust_cell_length(width)
-            return Strip.blank(width)
+                return Strip([Segment(hint, Style())]).adjust_cell_length(width, Style())
+            return Strip.blank(width, Style())
         rows = snap["rows"]
         if y >= len(rows):
-            return Strip.blank(width)
+            return Strip.blank(width, Style())
         segments = [Segment(text, run_style(key)) for text, key in rows[y]]
         if snap["offset"] and y == 0:
             banner = f" ↑ scrollback ({snap['offset']} lines) "
             segments = [Segment(banner, Style(reverse=True))] + segments
-        return Strip(segments).adjust_cell_length(width)
+        return Strip(segments).adjust_cell_length(width, Style())
 
     def on_key(self, event):
         event.stop()
