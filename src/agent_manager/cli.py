@@ -207,7 +207,7 @@ def main():
     sub.add_parser("keys", help="show what herd receives for each keypress").set_defaults(func=cmd_keys)
 
     p = sub.add_parser("app")
-    p.add_argument("--cmd", default="claude", help="default command for new agents")
+    p.add_argument("--cmd", default="", help="startup command for new tabs (default: an interactive shell)")
     p.add_argument("--prefix", default="ctrl+space", help="prefix key, e.g. ctrl+space, 'ctrl+]', ctrl+b")
     p.set_defaults(func=cmd_app)
 

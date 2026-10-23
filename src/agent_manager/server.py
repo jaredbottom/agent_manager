@@ -43,7 +43,7 @@ class Agent:
         self.name = name
         self.cwd = cwd
         self.command = command
-        self.state = "starting"
+        self.state = "idle" if not command.strip() else "starting"
         self.since = time.time()
         self.alive = False
         self.version = 0  # bumped whenever the screen changes
@@ -53,6 +53,14 @@ class Agent:
         self.proc = None
 
     def argv(self):
+        if not self.command.strip():
+            if os.name == "nt":
+                if shutil.which("pwsh"):
+                    return "pwsh"
+                if shutil.which("powershell"):
+                    return "powershell"
+                return os.environ.get("COMSPEC", "cmd.exe")
+            return [os.environ.get("SHELL") or "/bin/sh"]
         if os.name == "nt":
             resolved = shutil.which(self.command.split()[0])
             # npm installs claude as a .cmd shim, which has to go through cmd.exe
@@ -234,7 +242,8 @@ class Server:
             with self.lock:
                 self.spaces.append(space)
             try:
-                self._create_agent(client, space, command.split()[0], cwd, command)
+                tab_name = command.split()[0] if command.strip() else "shell"
+                self._create_agent(client, space, tab_name, cwd, command)
             except Exception:
                 with self.lock:
                     self.spaces.remove(space)
@@ -291,8 +300,11 @@ class Server:
                 records[record["herd_id"]] = record
         for agent in list(self.agents.values()):
             record = records.get(agent.id)
-            if agent.alive and record:
-                agent.set_state(record["state"])
+            if agent.alive:
+                if record:
+                    agent.set_state(record["state"])
+                elif not agent.command.strip():
+                    agent.set_state("idle")
 
     def _tick_loop(self):
         last_poll = 0

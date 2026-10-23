@@ -1,7 +1,8 @@
 # herd
 
-A small, herdr-style workspace for Claude Code on Windows: one window, a sidebar showing
-every agent's state, and a live terminal for whichever agent is selected.
+A small, herdr-style terminal workspace on Windows: one window, a sidebar showing
+every tab's state, and a live terminal for whichever tab is selected. New tabs
+open an interactive shell, so you can run Claude Code or any other command yourself.
 
 ## Setup
 
@@ -9,22 +10,37 @@ Needs [uv](https://docs.astral.sh/uv/). From this folder:
 
 ```
 uv tool install .      # puts a `herd` command on your PATH (re-run with --reinstall after changes)
-herd install           # adds status hooks to ~/.claude/settings.json (backed up first)
 herd app
 ```
 
-Or without installing: `uv run herd install`, then `uv run herd app`.
+Or without installing: `uv run herd app`.
+
+After an update, finish any running tabs and use `herd stop` before reopening the
+app. The background server keeps its old code until it stops, and `herd stop`
+kills its tabs.
+
+Optional: `herd install` adds Claude Code status hooks to
+`~/.claude/settings.json` (backed up first), so Claude tabs show when they are
+working, blocked, or done. The terminal workspace works without those hooks.
 
 `herd install` points the hooks at whichever environment you ran it from, so run it again if
 you switch between `uv tool install` and `uv run` (it replaces its old hooks).
+
+In `herd app`, press Ctrl+Space then Shift+C to create a space. Choose its folder
+and press Enter; its first tab opens a shell. Press Ctrl+Space then `c` to open
+another shell in that space immediately. On Windows, herd uses PowerShell (or
+`pwsh` if installed); on Linux/macOS, it uses `$SHELL`.
+
+If you prefer a startup command, use `herd app --cmd claude`, or enter one when
+creating a space. Leave the command field blank to open a shell.
 
 Use Windows Terminal for the best results; the old console host works but looks worse.
 
 ## Spaces and tabs
 
 Like herdr: a **space** is usually one project (a folder), and holds **tabs**, each running
-one agent full screen. The sidebar lists every space with its tabs and their states; the
-bar above the terminal shows the current space's tabs. Click either to switch.
+one shell or command full screen. The sidebar lists every space with its tabs and their states;
+the bar above the terminal shows the current space's tabs. Click either to switch.
 
 ## Keys
 
@@ -52,9 +68,9 @@ If no key line appears, the terminal is not sending that combination to herd. Tr
 
 ## States
 
-Reported by Claude Code hooks: **working**, **blocked** (needs permission), **done**
-(finished, waiting for you), **idle**, **exited**. herd beeps when an agent you aren't
-looking at becomes blocked or done.
+Shell tabs show **idle** until they exit. With Claude Code hooks installed, tabs also show
+**working**, **blocked** (needs permission), and **done** (finished, waiting for you).
+herd beeps when an agent you aren't looking at becomes blocked or done.
 
 ## Detach / reattach
 
@@ -66,5 +82,5 @@ Server output goes to `~/.herd/server.log`.
 ## Limitations
 
 - Agents don't survive a reboot or logoff.
-- States only work for Claude Code; other commands run fine but show as "starting".
+- Detailed states only work for Claude Code; other commands run fine but show as "starting".
 - Terminal emulation is pyte, so occasional rendering glitches are possible.

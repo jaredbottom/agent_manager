@@ -343,7 +343,7 @@ class HerdApp(App):
     ENABLE_COMMAND_PALETTE = False  # it would steal ctrl+p from the agents
     CSS = "#main { width: 1fr; }"
 
-    def __init__(self, conn, default_cmd="claude", prefix="ctrl+space"):
+    def __init__(self, conn, default_cmd="", prefix="ctrl+space"):
         super().__init__()
         self.conn = conn
         self.send_lock = threading.Lock()
@@ -511,17 +511,9 @@ class HerdApp(App):
         if space is None:
             self.action_new_space()
             return
-
-        def create(values):
-            if values:
-                command = values["cmd"] or self.default_cmd
-                self.send("create", space["id"], values["name"] or command.split()[0], values["dir"], command)
-
-        self.push_screen(FormDialog(f"New tab in '{space['name']}'", [
-            ("cmd", "command", self.default_cmd),
-            ("name", "tab name (default: the command)", ""),
-            ("dir", "working directory", space["cwd"]),
-        ]), create)
+        command = self.default_cmd
+        self.send("create", space["id"], command.split()[0] if command.strip() else "shell",
+                  space["cwd"], command)
 
     def _step_tab(self, delta):
         ids = [t["id"] for t in self.tabs(self.space_id)]
@@ -566,12 +558,12 @@ class HerdApp(App):
         def create(values):
             if values:
                 name = values["name"] or Path(values["dir"]).name
-                self.send("create_space", name, values["dir"], values["cmd"] or self.default_cmd)
+                self.send("create_space", name, values["dir"], values["cmd"])
 
         self.push_screen(FormDialog("New space", [
             ("dir", "project folder", space["cwd"] if space else os.getcwd()),
             ("name", "space name (default: folder name)", ""),
-            ("cmd", "command for the first tab", self.default_cmd),
+            ("cmd", "startup command (blank opens a shell)", self.default_cmd),
         ]), create)
 
     def _step_space(self, delta):
@@ -638,7 +630,7 @@ class HerdApp(App):
         self.push_screen(ConfirmDialog("Stop herd? This kills ALL agents in every space."), stop)
 
 
-def run(default_cmd="claude", prefix="ctrl+space"):
+def run(default_cmd="", prefix="ctrl+space"):
     conn = connect_or_start()
     app = HerdApp(conn, default_cmd, prefix)
     app.run()
