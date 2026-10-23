@@ -26,13 +26,20 @@ working, blocked, or done. The terminal workspace works without those hooks.
 `herd install` points the hooks at whichever environment you ran it from, so run it again if
 you switch between `uv tool install` and `uv run` (it replaces its old hooks).
 
-In `herd app`, press Ctrl+Space then Shift+C to create a space. Choose its folder
-and press Enter; its first tab opens a shell. Press Ctrl+Space then `c` to open
-another shell in that space immediately. On Windows, herd uses PowerShell (or
-`pwsh` if installed); on Linux/macOS, it uses `$SHELL`.
+In `herd app`, press Ctrl+Space then Shift+C to create a space immediately. The
+first space uses the folder where you launched herd; later spaces use the selected
+space's folder. Press Ctrl+Space then `c` to open another shell tab immediately.
+To choose a different folder, press Ctrl+Space then Shift+F. On Windows, herd
+uses PowerShell (or `pwsh` if installed); on Linux/macOS, it uses `$SHELL`.
 
-If you prefer a startup command, use `herd app --cmd claude`, or enter one when
-creating a space. Leave the command field blank to open a shell.
+Spaces are named for the Git branch when it is neither `main` nor `master`.
+On `main`, `master`, or a detached HEAD, they use the repository folder's name.
+Outside Git, or if Git is unavailable, they use the working folder's name (or
+`workspace` for a filesystem root). Repeated names get a number, such as
+`project (2)`. You can rename a space with Shift+W.
+
+If you prefer a startup command, use `herd app --cmd claude`, or enter one in
+the Shift+F form. Leave the command field blank to open a shell.
 
 Use Windows Terminal for the best results; the old console host works but looks worse.
 
@@ -48,13 +55,14 @@ Everything goes through a prefix, like tmux/herdr: press **Ctrl+Space**, then:
 
 | Key | Action | | Key | Action |
 |---|---|---|---|---|
-| c | New tab in this space | | C | New space |
+| c | New tab in this space | | C | New space here |
+| F | New space in another folder | | W | Rename space |
 | n / p | Next / previous tab | | w | Next space |
-| 1-9 | Jump to tab N | | W | Rename space |
-| T | Rename tab | | D | Close space (kills its agents) |
-| x | Close tab | | a | Jump to the next agent waiting on you, in any space |
+| 1-9 | Jump to tab N | | T | Rename tab |
+| D | Close space (kills its agents) | | x | Close tab |
+| a | Jump to the next agent waiting on you, in any space | | ? | Help |
 | [ | Scroll back (also Shift+PgUp/PgDn, wheel) | | d | Detach: close the window, agents keep running |
-| ? | Help | | Q | Stop herd and kill all agents |
+| Q | Stop herd and kill all agents | | | |
 
 **Without the prefix:** Alt+Left/Right switch tabs, Alt+Up/Down switch spaces.
 

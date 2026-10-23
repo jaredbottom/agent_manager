@@ -1,6 +1,8 @@
 """The default workspace should open a usable shell without a command."""
 
 import os
+import shutil
+import subprocess
 import tempfile
 import time
 import unittest
@@ -62,6 +64,36 @@ class ShellTests(unittest.TestCase):
         self.assertEqual(create.call_args.args[2:], ("shell", "/tmp", ""))
 
 
+class SpaceNameTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("git"), "Git is needed for repository naming")
+    def test_branch_repo_and_folder_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "my-project"
+            repo.mkdir()
+            subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "main"], check=True)
+            nested = repo / "nested"
+            nested.mkdir()
+            self.assertEqual(server.suggested_space_name(str(nested)), "my-project")
+            subprocess.run(["git", "-C", str(repo), "symbolic-ref", "HEAD", "refs/heads/feature/login"], check=True)
+            self.assertEqual(server.suggested_space_name(str(nested)), "feature/login")
+            subprocess.run(["git", "-C", str(repo), "symbolic-ref", "HEAD", "refs/heads/master"], check=True)
+            self.assertEqual(server.suggested_space_name(str(nested)), "my-project")
+            self.assertEqual(server.suggested_space_name(directory), Path(directory).name)
+
+    def test_duplicate_names_get_numbers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manager = server.Server()
+            with patch.object(manager, "_create_agent"):
+                manager.handle(None, ("create_space", "", directory, ""))
+                manager.handle(None, ("create_space", "", directory, ""))
+            base = Path(directory).name
+            self.assertEqual([space["name"] for space in manager.spaces], [base, f"{base} (2)"])
+
+    def test_fallback_when_git_is_unavailable(self):
+        with patch.object(server.subprocess, "run", side_effect=FileNotFoundError):
+            self.assertEqual(server.suggested_space_name("/"), "workspace")
+
+
 class NewTabTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_tab_opens_shell_without_form(self):
         front, back = Pipe()
@@ -79,24 +111,30 @@ class NewTabTests(unittest.IsolatedAsyncioTestCase):
                     messages.append(back.recv())
                 self.assertIn(("create", "space", "shell", "/tmp", ""), messages)
                 self.assertNotIsInstance(app.screen, FormDialog)
+                await pilot.press("ctrl+space", "C")
+                await pilot.pause()
+                messages = []
+                while back.poll():
+                    messages.append(back.recv())
+                self.assertIn(("create_space", "", "/tmp", ""), messages)
         finally:
             front.close()
             back.close()
 
-    async def test_new_space_accepts_blank_command(self):
+    async def test_new_space_opens_immediately(self):
         front, back = Pipe()
         app = HerdApp(front)
         try:
             async with app.run_test(size=(100, 30)) as pilot:
                 await pilot.press("ctrl+space", "C")
-                self.assertIsInstance(app.screen, FormDialog)
-                await pilot.press("enter")
                 await pilot.pause()
                 messages = []
                 while back.poll():
                     messages.append(back.recv())
-                self.assertTrue(any(message[0] == "create_space" and message[3] == ""
-                                    for message in messages), messages)
+                self.assertIn(("create_space", "", os.getcwd(), ""), messages)
+                self.assertNotIsInstance(app.screen, FormDialog)
+                await pilot.press("ctrl+space", "F")
+                self.assertIsInstance(app.screen, FormDialog)
         finally:
             front.close()
             back.close()

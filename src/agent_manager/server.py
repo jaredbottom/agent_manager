@@ -6,10 +6,12 @@ Started automatically by `herd app`; stopped with `herd stop` (or prefix then Q 
 import json
 import os
 import shutil
+import subprocess
 import threading
 import time
 import uuid
 from multiprocessing.connection import Listener
+from pathlib import Path
 
 import pyte
 
@@ -23,6 +25,26 @@ else:  # lets herd run on Linux/macOS too, handy for development
 HERD_DIR = HERD_HOME / "sessions"
 SCROLLBACK = 10000
 BRACKETED_PASTE = 2004 << 5  # how pyte stores private mode ?2004
+
+
+def suggested_space_name(cwd):
+    """Use the branch for feature work, the repo name for its default branch."""
+    def git_output(*args):
+        try:
+            result = subprocess.run(
+                ["git", "-C", cwd, *args], capture_output=True, text=True, timeout=2, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    root = git_output("rev-parse", "--show-toplevel")
+    if root:
+        branch = git_output("symbolic-ref", "--quiet", "--short", "HEAD")
+        if branch and branch.casefold() not in {"main", "master"}:
+            return branch
+        return Path(root).name or "workspace"
+    return Path(cwd).name or "workspace"
 
 
 class TermScreen(pyte.HistoryScreen):
@@ -238,8 +260,15 @@ class Server:
                 agent.resize(*self.size)
         elif kind == "create_space":  # a new space, with a first tab running `command`
             name, cwd, command = args
-            space = {"id": uuid.uuid4().hex[:12], "name": name, "cwd": cwd}
+            base_name = name.strip() or suggested_space_name(cwd)
             with self.lock:
+                used_names = {sp["name"] for sp in self.spaces}
+                unique_name = base_name
+                number = 2
+                while unique_name in used_names:
+                    unique_name = f"{base_name} ({number})"
+                    number += 1
+                space = {"id": uuid.uuid4().hex[:12], "name": unique_name, "cwd": cwd}
                 self.spaces.append(space)
             try:
                 tab_name = command.split()[0] if command.strip() else "shell"

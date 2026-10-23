@@ -7,7 +7,6 @@ The agents run inside the herd server; this window just attaches to it. Close th
 import os
 import threading
 import time
-from pathlib import Path
 
 from rich.segment import Segment
 from rich.style import Style
@@ -57,7 +56,7 @@ PREFIX_ALIASES = {
 # character typed after the prefix -> app action (mirrors herdr's defaults)
 PREFIX_COMMANDS = {
     "c": "new_tab", "n": "next_tab", "p": "prev_tab", "T": "rename_tab", "x": "close_tab",
-    "C": "new_space", "w": "next_space", "W": "rename_space", "D": "close_space",
+    "C": "new_space", "F": "new_space_in_folder", "w": "next_space", "W": "rename_space", "D": "close_space",
     "a": "next_waiting", "[": "scrollback", "d": "detach", "Q": "stop_all", "?": "help",
 }
 # shortcuts that work without the prefix
@@ -66,7 +65,8 @@ DIRECT_KEYS = {
     "alt+left": "prev_tab", "alt+right": "next_tab",
 }
 HELP_LINES = [
-    "c  new tab            C  new space",
+    "c  new tab            C  new space here",
+    "F  new space in folder",
     "n/p  next/prev tab    w  next space",
     "1-9  jump to tab      W  rename space",
     "T  rename tab         D  close space",
@@ -76,7 +76,7 @@ HELP_LINES = [
     "",
     "No prefix needed: Alt+Up/Down switch spaces, Alt+Left/Right switch tabs",
 ]
-STATUS_HINT = "c tab · C space · 1-9 · a waiting · x close · d detach · ? help   Alt+←/→ tabs · Alt+↑/↓ spaces"
+STATUS_HINT = "c tab · C space · F folder · 1-9 · a waiting · x close · d detach · ? help   Alt+←/→ tabs · Alt+↑/↓ spaces"
 
 
 # --- rendering -------------------------------------------------------------
@@ -554,15 +554,19 @@ class HerdApp(App):
 
     def action_new_space(self):
         space = self.current_space()
+        cwd = space["cwd"] if space else os.getcwd()
+        self.send("create_space", "", cwd, self.default_cmd)
+
+    def action_new_space_in_folder(self):
+        space = self.current_space()
 
         def create(values):
             if values:
-                name = values["name"] or Path(values["dir"]).name
-                self.send("create_space", name, values["dir"], values["cmd"])
+                self.send("create_space", values["name"], values["dir"], values["cmd"])
 
-        self.push_screen(FormDialog("New space", [
+        self.push_screen(FormDialog("New space in folder", [
             ("dir", "project folder", space["cwd"] if space else os.getcwd()),
-            ("name", "space name (default: folder name)", ""),
+            ("name", "space name (blank = automatic)", ""),
             ("cmd", "startup command (blank opens a shell)", self.default_cmd),
         ]), create)
 
