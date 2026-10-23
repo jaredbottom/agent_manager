@@ -109,6 +109,32 @@ class ShellTests(unittest.TestCase):
 
 class SpaceNameTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("git"), "Git is needed for repository naming")
+    def test_existing_space_follows_shell_until_manually_renamed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "new-repo"
+            repo.mkdir()
+            subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "feature/new"], check=True)
+
+            manager = server.Server()
+            with patch.object(manager, "_create_agent"):
+                manager.handle(None, ("create_space", "", directory, ""))
+            space = manager.spaces[0]
+            shell = server.Agent(space, "shell", directory, "")
+            shell.alive = True
+            manager.agents[shell.id] = shell
+
+            with patch.object(shell, "current_cwd", return_value=str(repo)):
+                manager._poll_space_locations()
+            self.assertEqual(space["cwd"], str(repo))
+            self.assertEqual(space["name"], "feature/new")
+
+            manager.handle(None, ("rename_space", space["id"], "Pinned"))
+            with patch.object(shell, "current_cwd", return_value=directory):
+                manager._poll_space_locations()
+            self.assertEqual(space["cwd"], directory)
+            self.assertEqual(space["name"], "Pinned")
+
+    @unittest.skipUnless(shutil.which("git"), "Git is needed for repository naming")
     def test_branch_repo_and_folder_names(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / "my-project"

@@ -260,6 +260,8 @@ class Server:
     def __init__(self):
         self.spaces = []  # [{"id", "name", "cwd"}], in sidebar order
         self.agents = {}  # id -> Agent, in tab order
+        self.auto_named_spaces = set()
+        self.followed_agents = {}  # space id -> last viewed shell tab
         self.clients = []
         self.size = (24, 80)
         self.lock = threading.Lock()
@@ -306,6 +308,9 @@ class Server:
         elif kind == "view":
             client.view, client.offset = args
             client.sent_screen = None
+            agent = self.agents.get(client.view)
+            if agent and not agent.command.strip():
+                self.followed_agents[agent.space["id"]] = agent.id
         elif kind == "resize":
             self.size = (max(args[0], 2), max(args[1], 10))
             for agent in list(self.agents.values()):
@@ -326,12 +331,15 @@ class Server:
                     number += 1
                 space = {"id": uuid.uuid4().hex[:12], "name": unique_name, "cwd": cwd}
                 self.spaces.append(space)
+                if not name.strip():
+                    self.auto_named_spaces.add(space["id"])
             try:
                 tab_name = command.split()[0] if command.strip() else "shell"
                 self._create_agent(client, space, tab_name, cwd, command)
             except Exception:
                 with self.lock:
                     self.spaces.remove(space)
+                    self.auto_named_spaces.discard(space["id"])
                 raise
         elif kind == "create":
             space_id, name, cwd, command, *source_ids = args
@@ -351,6 +359,7 @@ class Server:
             for space in self.spaces:
                 if space["id"] == args[0]:
                     space["name"] = args[1]
+                    self.auto_named_spaces.discard(space["id"])
         elif kind == "close":
             with self.lock:
                 agent = self.agents.pop(args[0], None)
@@ -359,6 +368,8 @@ class Server:
         elif kind == "close_space":
             with self.lock:
                 self.spaces = [sp for sp in self.spaces if sp["id"] != args[0]]
+                self.auto_named_spaces.discard(args[0])
+                self.followed_agents.pop(args[0], None)
                 doomed = [a for a in self.agents.values() if a.space["id"] == args[0]]
                 for agent in doomed:
                     del self.agents[agent.id]
@@ -395,6 +406,32 @@ class Server:
                 elif not agent.command.strip():
                     agent.set_state("idle")
 
+    def _poll_space_locations(self):
+        for space in list(self.spaces):
+            shells = [agent for agent in self.agents.values()
+                      if agent.space["id"] == space["id"] and agent.alive
+                      and not agent.command.strip()]
+            if not shells:
+                continue
+            followed = self.followed_agents.get(space["id"])
+            agent = next((shell for shell in shells if shell.id == followed), shells[0])
+            cwd = agent.current_cwd()
+            if cwd == space["cwd"]:
+                continue
+            base_name = suggested_space_name(cwd) if space["id"] in self.auto_named_spaces else None
+            with self.lock:
+                if space not in self.spaces:
+                    continue
+                space["cwd"] = cwd
+                if space["id"] in self.auto_named_spaces:
+                    used_names = {other["name"] for other in self.spaces if other is not space}
+                    unique_name = base_name
+                    number = 2
+                    while unique_name in used_names:
+                        unique_name = f"{base_name} ({number})"
+                        number += 1
+                    space["name"] = unique_name
+
     def _tick_loop(self):
         last_poll = 0
         while True:
@@ -402,6 +439,7 @@ class Server:
             if time.time() - last_poll >= 0.5:
                 last_poll = time.time()
                 self._poll_hook_states()
+                self._poll_space_locations()
             with self.lock:
                 meta = {"spaces": [dict(sp) for sp in self.spaces],
                         "agents": [a.meta() for a in self.agents.values()]}

@@ -38,8 +38,9 @@ Spaces are named for the Git branch when it is neither `main` nor `master`.
 On `main`, `master`, or a detached HEAD, they use the repository folder's name.
 Outside Git, or if Git is unavailable, they use the working folder's name (or
 `workspace` for a filesystem root). Repeated names get a number, such as
-`project (2)`. You can rename a space with Shift+W.
-Changing folders does not rename an existing space; it affects spaces created afterward.
+`project (2)`. An automatically named space follows the selected shell when you
+`cd` into another folder or repository. Its name and folder update together.
+Use Shift+W to set a name that stays fixed.
 
 If you prefer a startup command, use `herd app --cmd claude`, or enter one in
 the Shift+F form. Leave the command field blank to open a shell.
