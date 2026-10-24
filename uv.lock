@@ -11,6 +11,7 @@ dependencies = [
     { name = "pyte" },
     { name = "pywinpty", marker = "sys_platform == 'win32'" },
     { name = "textual" },
+    { name = "wcwidth" },
 ]
 
 [package.metadata]
@@ -19,6 +20,7 @@ requires-dist = [
     { name = "pyte", specifier = ">=0.8.2" },
     { name = "pywinpty", marker = "sys_platform == 'win32'", specifier = ">=3.1.0" },
     { name = "textual", specifier = ">=8.2.8" },
+    { name = "wcwidth", specifier = ">=0.2.13" },
 ]
 
 [[package]]

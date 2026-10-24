@@ -12,11 +12,44 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from rich.cells import cell_len
+
 from agent_manager import server
 from agent_manager.app import FormDialog, HerdApp
 
 
 class ShellTests(unittest.TestCase):
+    def test_unicode_format_chars_do_not_drop_following_output(self):
+        agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+        for output in ("before✳️after", "before👩‍💻after", "before\u200bafter"):
+            agent.screen.reset()
+            agent.stream.feed(output)
+            visible = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
+            self.assertIn("before", visible)
+            self.assertIn("after", visible)
+            self.assertIn(output.replace("\u200b", ""), visible)
+
+        agent.screen.reset()
+        agent.stream.feed("before✳")
+        agent.stream.feed("️after")
+        visible = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
+        self.assertIn("before✳️after", visible)
+        self.assertEqual(agent.screen.cursor.x, 13)
+        self.assertEqual(cell_len(visible.rstrip()), agent.screen.cursor.x)
+
+        agent.screen.reset()
+        for part in ("before👩", "\u200d", "💻after"):
+            agent.stream.feed(part)
+        visible = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
+        self.assertIn("before👩‍💻after", visible)
+        self.assertEqual(cell_len(visible.rstrip()), agent.screen.cursor.x)
+
+    def test_ansi_cursor_save_and_restore(self):
+        agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+        agent.stream.feed("abcd\x1b[s\x1b[HXX\x1b[uY")
+        visible = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
+        self.assertTrue(visible.startswith("XXcdY"))
+
     def test_full_screen_program_restores_shell_screen(self):
         agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
         agent.stream.feed("shell prompt")

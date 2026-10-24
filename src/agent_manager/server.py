@@ -11,11 +11,13 @@ import shutil
 import subprocess
 import threading
 import time
+import unicodedata
 import uuid
 from multiprocessing.connection import Listener
 from pathlib import Path
 
 import pyte
+from wcwidth import wcwidth, wcswidth
 
 from agent_manager.ipc import HERD_HOME, address, authkey, try_connect
 
@@ -83,6 +85,7 @@ class TermScreen:
         self.main.write_process_input = reply
         self.alternate.write_process_input = reply
         self.cwd = None
+        self._join_next = False
 
     def __getattr__(self, name):
         value = getattr(self.active, name)
@@ -102,6 +105,72 @@ class TermScreen:
 
     def write_process_input(self, data):
         self._reply(data)
+
+    def _append_to_previous(self, suffix):
+        screen = self.active
+        y = screen.cursor.y
+        x = screen.cursor.x - 1
+        if x < 0:
+            return False
+        row = screen.buffer[y]
+        while x >= 0 and row[x].data == "":
+            x -= 1
+        if x < 0:
+            return False
+        previous = row[x]
+        combined = previous.data + suffix
+        before, after = wcswidth(previous.data), wcswidth(combined)
+        if (before < 0 or after < 0
+                or (after > before and screen.cursor.x + after - before > screen.columns)):
+            return False
+        if after > before:
+            for cell in range(screen.cursor.x, screen.cursor.x + after - before):
+                row[cell] = previous._replace(data="")
+            screen.cursor.x += after - before
+        elif after < before:
+            for cell in range(screen.cursor.x - before + after, screen.cursor.x):
+                row.pop(cell, None)
+            screen.cursor.x -= before - after
+        row[x] = previous._replace(data=combined)
+        screen.dirty.add(y)
+        return True
+
+    def draw(self, data):
+        # pyte 0.8.2 drops everything after a zero-width codepoint. Attach
+        # emoji modifiers and combining marks to their existing screen cell.
+        ordinary = []
+
+        def flush():
+            if ordinary:
+                self.active.draw("".join(ordinary))
+                ordinary.clear()
+
+        for char in data:
+            code = ord(char)
+            if char == "\u200d":
+                flush()
+                self._join_next = self._append_to_previous(char)
+            elif ((unicodedata.category(char).startswith("M") and wcwidth(char) == 0)
+                  or 0x1F3FB <= code <= 0x1F3FF):
+                flush()
+                self._append_to_previous(char)
+            elif wcwidth(char) <= 0:
+                flush()
+                self._join_next = False
+            elif self._join_next:
+                flush()
+                if not self._append_to_previous(char):
+                    self.active.draw(char)
+                self._join_next = False
+            else:
+                ordinary.append(char)
+        flush()
+
+    def save_cursor(self, *_args):
+        self.active.save_cursor()
+
+    def restore_cursor(self, *_args):
+        self.active.restore_cursor()
 
     def set_title(self, param):
         if param.startswith(CWD_TITLE_PREFIX):
@@ -131,6 +200,7 @@ class TermScreen:
         self.main.reset()
         self.alternate.reset()
         self.active = self.main
+        self._join_next = False
 
     def resize(self, lines, columns):
         self.main.resize(lines, columns)
@@ -156,9 +226,10 @@ class TermScreen:
 
 
 class TermStream(pyte.Stream):
-    """Parse the scroll controls emitted by some Windows console programs."""
+    """Parse terminal controls used by modern interactive programs."""
 
-    csi = {**pyte.Stream.csi, "S": "scroll_up", "T": "scroll_down"}
+    csi = {**pyte.Stream.csi, "S": "scroll_up", "T": "scroll_down",
+           "s": "save_cursor", "u": "restore_cursor"}
     events = pyte.Stream.events | {"scroll_up", "scroll_down"}
 
 
