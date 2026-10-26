@@ -164,11 +164,13 @@ class TermScreen:
                 ordinary.append(char)
         flush()
 
-    def save_cursor(self, *_args):
-        self.active.save_cursor()
+    def save_cursor(self, *_args, **kwargs):
+        if not kwargs.get("private"):
+            self.active.save_cursor()
 
-    def restore_cursor(self, *_args):
-        self.active.restore_cursor()
+    def restore_cursor(self, *_args, **kwargs):
+        if not kwargs.get("private"):
+            self.active.restore_cursor()
 
     def set_title(self, param):
         if param.startswith(CWD_TITLE_PREFIX):
@@ -229,6 +231,52 @@ class TermStream(pyte.Stream):
     csi = {**pyte.Stream.csi, "S": "scroll_up", "T": "scroll_down",
            "s": "save_cursor", "u": "restore_cursor"}
     events = pyte.Stream.events | {"scroll_up", "scroll_down"}
+
+    def __init__(self, screen):
+        super().__init__(screen)
+        self._keyboard_sequence = ""
+
+    def feed(self, data):
+        # pyte discards CSI's ?, > and < prefixes before dispatching `u`.
+        # Keep Kitty keyboard negotiation away from CSI u cursor restore.
+        output = []
+
+        def flush():
+            if output:
+                super(TermStream, self).feed("".join(output))
+                output.clear()
+
+        for char in data:
+            pending = self._keyboard_sequence
+            if not pending:
+                if char == "\x1b":
+                    flush()
+                    self._keyboard_sequence = char
+                else:
+                    output.append(char)
+            elif pending == "\x1b":
+                if char == "[":
+                    self._keyboard_sequence += char
+                else:
+                    output.append(pending + char)
+                    self._keyboard_sequence = ""
+            elif pending == "\x1b[":
+                if char in "?><":
+                    self._keyboard_sequence += char
+                else:
+                    output.append(pending + char)
+                    self._keyboard_sequence = ""
+            elif char.isdigit() or char == ";":
+                self._keyboard_sequence += char
+            elif char == "u":
+                flush()
+                if pending[2] == "?":
+                    self.listener.write_process_input("\x1b[?0u")
+                self._keyboard_sequence = ""
+            else:
+                output.append(pending + char)
+                self._keyboard_sequence = ""
+        flush()
 
 
 class Agent:

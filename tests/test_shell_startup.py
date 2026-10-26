@@ -52,6 +52,18 @@ class ShellTests(unittest.TestCase):
         visible = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
         self.assertTrue(visible.startswith("XXcdY"))
 
+    def test_keyboard_protocol_query_does_not_crash_or_restore_cursor(self):
+        agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+        replies = []
+        agent.screen._reply = replies.append
+        agent.stream.feed("abcd\x1b[s\x1b[HXX\x1b[?")
+        agent.stream.feed("u\x1b[>1u\x1b[<u")
+        self.assertEqual(replies, ["\x1b[?0u"])
+        self.assertEqual(agent.screen.cursor.x, 2)
+        agent.stream.feed("\x1b[uY")
+        visible = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
+        self.assertTrue(visible.startswith("XXcdY"))
+
     def test_full_screen_program_restores_shell_screen(self):
         agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
         agent.stream.feed("shell prompt")
