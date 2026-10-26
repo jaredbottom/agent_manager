@@ -1,6 +1,7 @@
 """The default workspace should open a usable shell without a command."""
 
 import base64
+import json
 import os
 import shutil
 import subprocess
@@ -15,6 +16,7 @@ from unittest.mock import patch
 from rich.cells import cell_len
 
 from agent_manager import server
+from agent_manager import cli
 from agent_manager.app import FormDialog, HerdApp
 
 
@@ -89,7 +91,7 @@ class ShellTests(unittest.TestCase):
             with patch.dict(os.environ, {"SHELL": "/bin/sh"}):
                 agent.start(24, 80)
             try:
-                self.assertEqual(agent.state, "idle")
+                self.assertTrue(agent.alive)
                 agent.write("printf SHELL_READY > marker\n")
                 marker = Path(directory) / "marker"
                 deadline = time.monotonic() + 3
@@ -151,17 +153,6 @@ class ShellTests(unittest.TestCase):
                 self.assertEqual(create.call_args.args[3], str(target))
             finally:
                 agent.kill()
-
-    def test_shell_returns_to_idle_after_claude_session_ends(self):
-        agent = server.Agent({"id": "s", "name": "s", "cwd": "."}, "shell", ".", "")
-        agent.alive = True
-        agent.set_state("done")
-        manager = server.Server()
-        manager.agents[agent.id] = agent
-        with tempfile.TemporaryDirectory() as directory:
-            with patch.object(server, "HERD_DIR", Path(directory)):
-                manager._poll_hook_states()
-        self.assertEqual(agent.state, "idle")
 
     def test_server_creates_first_shell_without_command(self):
         manager = server.Server()
@@ -236,7 +227,7 @@ class NewTabTests(unittest.IsolatedAsyncioTestCase):
                 app.on_server_message(("state", {
                     "spaces": [{"id": "space", "name": "project", "cwd": "/tmp"}],
                     "agents": [{"id": "agent", "space": "space", "name": "shell",
-                                "cwd": "/tmp", "state": "idle", "since": 0}],
+                                "cwd": "/tmp", "alive": True}],
                 }))
                 await pilot.press("ctrl+space", "c")
                 await pilot.pause()
@@ -272,6 +263,31 @@ class NewTabTests(unittest.IsolatedAsyncioTestCase):
         finally:
             front.close()
             back.close()
+
+
+class LegacyHookTests(unittest.TestCase):
+    def test_remove_hooks_preserves_unrelated_claude_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings_path = Path(directory) / "settings.json"
+            settings_path.write_text(json.dumps({
+                "theme": "dark",
+                "hooks": {
+                    "Stop": [{"hooks": [
+                        {"type": "command", "command": '"python" -m agent_manager.cli hook'},
+                        {"type": "command", "command": "other-tool"},
+                    ]}],
+                    "SessionEnd": [{"hooks": [
+                        {"type": "command", "command": '"python" -m agent_manager.cli hook'},
+                    ]}],
+                },
+            }))
+            with patch.object(cli, "CLAUDE_SETTINGS", settings_path):
+                cli.cmd_remove_hooks(None)
+            saved = json.loads(settings_path.read_text())
+            self.assertEqual(saved, {
+                "theme": "dark",
+                "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "other-tool"}]}]},
+            })
 
 
 if __name__ == "__main__":

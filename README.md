@@ -1,7 +1,7 @@
 # herd
 
-A small, herdr-style terminal workspace on Windows: one window, a sidebar showing
-every tab's state, and a live terminal for whichever tab is selected. New tabs
+A small, herdr-style terminal workspace on Windows: one window, spaces and tabs,
+and a live terminal for whichever tab is selected. New tabs
 open an interactive shell, so you can run Claude Code or any other command yourself.
 
 ## Setup
@@ -19,12 +19,9 @@ After an update, finish any running tabs and use `herd stop` before reopening th
 app. The background server keeps its old code until it stops, and `herd stop`
 kills its tabs.
 
-Optional: `herd install` adds Claude Code status hooks to
-`~/.claude/settings.json` (backed up first), so Claude tabs show when they are
-working, blocked, or done. The terminal workspace works without those hooks.
-
-`herd install` points the hooks at whichever environment you ran it from, so run it again if
-you switch between `uv tool install` and `uv run` (it replaces its old hooks).
+If you used `herd install` with an older version, run `herd remove-hooks` once
+to remove herd's entries from Claude Code's settings. New installations do not
+need hooks.
 
 In `herd app`, press Ctrl+Space then Shift+C to create a space immediately. The
 first space uses the folder where you launched herd; later spaces follow the
@@ -50,7 +47,7 @@ Use Windows Terminal for the best results; the old console host works but looks 
 ## Spaces and tabs
 
 Like herdr: a **space** is usually one project (a folder), and holds **tabs**, each running
-one shell or command full screen. The sidebar lists every space with its tabs and their states;
+one shell or command full screen. The sidebar lists every space with its tabs;
 the bar above the terminal shows the current space's tabs. Click either to switch.
 
 ## Keys
@@ -63,14 +60,13 @@ Everything goes through a prefix, like tmux/herdr: press **Ctrl+Space**, then:
 | F | New space in another folder | | W | Rename space |
 | n / p | Next / previous tab | | w | Next space |
 | 1-9 | Jump to tab N | | T | Rename tab |
-| D | Close space (kills its agents) | | x | Close tab |
-| a | Jump to the next agent waiting on you, in any space | | ? | Help |
-| [ | Scroll back (also Shift+PgUp/PgDn, wheel) | | d | Detach: close the window, agents keep running |
-| Q | Stop herd and kill all agents | | | |
+| D | Close space (kills its tabs) | | x | Close tab |
+| [ | Scroll back (also Shift+PgUp/PgDn, wheel) | | ? | Help |
+| d | Detach: close the window, tabs keep running | | Q | Stop herd and kill all tabs |
 
 **Without the prefix:** Alt+Left/Right switch tabs, Alt+Up/Down switch spaces.
 
-Press the prefix twice to send it to the agent. Every other key goes straight to the agent.
+Press the prefix twice to send it to the selected tab. Every other key goes straight to that tab.
 To use a different prefix: `herd app --prefix "ctrl+]"` (or `ctrl+b`, `ctrl+\`, ...).
 
 If Ctrl+Space does nothing in Windows Terminal, run `herd check-keys` and press it once.
@@ -79,21 +75,16 @@ If no key line appears, the terminal is not sending that combination to herd. Tr
 `herd check-keys`. This check displays input only in its own window and does not
 save it. The **C** command is Shift+C; lowercase **c** opens a tab.
 
-## States
-
-Shell tabs show **idle** until they exit. With Claude Code hooks installed, tabs also show
-**working**, **blocked** (needs permission), and **done** (finished, waiting for you).
-herd beeps when an agent you aren't looking at becomes blocked or done.
+Exited tabs show a ✕. They remain visible until you close them.
 
 ## Detach / reattach
 
-The agents run in a hidden background server, started automatically the first time you
+The tabs run in a hidden background server, started automatically the first time you
 run `herd app`. Closing the window (prefix then d, or just closing the terminal) leaves them
 running; `herd app` reattaches. `herd stop` shuts everything down.
 Server output goes to `~/.herd/server.log`.
 
 ## Limitations
 
-- Agents don't survive a reboot or logoff.
-- Detailed states only work for Claude Code; other commands run fine but show as "starting".
+- Tabs don't survive a reboot or logoff.
 - Terminal emulation is pyte, so occasional rendering glitches are possible.

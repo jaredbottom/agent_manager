@@ -1,7 +1,7 @@
-"""herd app - one window, a sidebar of agents, and a live terminal for the selected one.
+"""herd app - one window, spaces and tabs, and a live terminal for the selected one.
 
-The agents run inside the herd server; this window just attaches to it. Close the window
-(prefix, then d) and the agents keep going; run `herd app` again to reattach.
+The tabs run inside the herd server; this window just attaches to it. Close the window
+(prefix, then d) and the tabs keep going; run `herd app` again to reattach.
 """
 
 import os
@@ -20,16 +20,6 @@ from textual.widget import Widget
 from textual.widgets import Input, Label, Static
 
 from agent_manager.ipc import connect_or_start
-
-STATE_STYLE = {
-    "working": ("●", "yellow"),
-    "blocked": ("●", "bold red"),
-    "done": ("●", "bold green"),
-    "idle": ("○", "grey50"),
-    "starting": ("○", "grey50"),
-    "exited": ("✕", "grey37"),
-}
-NEEDS_YOU = {"blocked", "done"}
 
 KEYMAP = {
     "up": "\x1b[A", "down": "\x1b[B", "right": "\x1b[C", "left": "\x1b[D",
@@ -57,7 +47,7 @@ PREFIX_ALIASES = {
 PREFIX_COMMANDS = {
     "c": "new_tab", "n": "next_tab", "p": "prev_tab", "T": "rename_tab", "x": "close_tab",
     "C": "new_space", "F": "new_space_in_folder", "w": "next_space", "W": "rename_space", "D": "close_space",
-    "a": "next_waiting", "[": "scrollback", "d": "detach", "Q": "stop_all", "?": "help",
+    "[": "scrollback", "d": "detach", "Q": "stop_all", "?": "help",
 }
 # shortcuts that work without the prefix
 DIRECT_KEYS = {
@@ -70,13 +60,13 @@ HELP_LINES = [
     "n/p  next/prev tab    w  next space",
     "1-9  jump to tab      W  rename space",
     "T  rename tab         D  close space",
-    "x  close tab          a  next agent waiting on you",
-    "[  scrollback         d  detach (agents keep running)",
-    "?  this help          Q  stop herd and all agents",
+    "x  close tab          [  scrollback",
+    "d  detach (tabs keep running)",
+    "?  this help          Q  stop herd and all tabs",
     "",
     "No prefix needed: Alt+Up/Down switch spaces, Alt+Left/Right switch tabs",
 ]
-STATUS_HINT = "c tab · C space · F folder · 1-9 · a waiting · x close · d detach · ? help   Alt+←/→ tabs · Alt+↑/↓ spaces"
+STATUS_HINT = "c tab · C space · F folder · 1-9 · x close · d detach · ? help   Alt+←/→ tabs · Alt+↑/↓ spaces"
 
 
 # --- rendering -------------------------------------------------------------
@@ -110,7 +100,7 @@ def run_style(key):
 
 
 class TerminalView(Widget, can_focus=True):
-    """Draws the selected agent's screen and forwards keystrokes to it."""
+    """Draws the selected tab's screen and forwards keystrokes to it."""
 
     DEFAULT_CSS = "TerminalView { width: 1fr; height: 1fr; }"
 
@@ -196,10 +186,10 @@ class TerminalView(Widget, can_focus=True):
 
 
 class Sidebar(Static):
-    """Spaces, each with its tabs and their agent states."""
+    """Spaces and their tabs."""
 
     DEFAULT_CSS = """
-    Sidebar { width: 30; height: 1fr; border-right: solid $primary-darken-2; padding: 0 1; }
+    Sidebar { width: 26; height: 1fr; border-right: solid $primary-darken-2; padding: 0 1; }
     """
 
     def __init__(self):
@@ -221,17 +211,13 @@ class Sidebar(Static):
             current = space["id"] == app.space_id
             tabs = app.tabs(space["id"])
             parts = [("▶ " if current else "  ", "bold"), (space["name"][:20], "bold" if current else "")]
-            waiting = sum(1 for t in tabs if t["state"] in NEEDS_YOU)
-            if waiting:
-                parts.append((f" ({waiting})", "bold yellow"))
             line(parts, ("space", space["id"]))
             for i, tab in enumerate(tabs):
-                glyph, color = STATE_STYLE.get(tab["state"], ("?", ""))
                 selected = tab["id"] == app.selected_id
-                label = f"{i + 1} {tab['name']}"[:13]
-                state_style = color if tab["state"] in NEEDS_YOU else "grey50"
-                line([("  ", ""), (f"{glyph} ", color), (f"{label:<14}", "bold" if selected else ""),
-                      (tab["state"], state_style)], ("tab", tab["id"]))
+                glyph = "✕" if not tab["alive"] else " "
+                label = f"{i + 1} {tab['name']}"[:18]
+                line([("  ", ""), (f"{glyph} ", "grey50"),
+                      (label, "bold" if selected else "")], ("tab", tab["id"]))
             line()
         if not app.spaces:
             line([("no spaces yet", "grey50")])
@@ -248,7 +234,7 @@ class Sidebar(Static):
 
 
 class TabBar(Static):
-    """The current space's tabs, one per agent."""
+    """The current space's tabs."""
 
     DEFAULT_CSS = "TabBar { height: 1; background: $panel; }"
 
@@ -263,11 +249,11 @@ class TabBar(Static):
             out.append(f" {space['name']} ", style="bold")
             out.append("│")
             for i, tab in enumerate(app.tabs(space["id"])):
-                glyph, color = STATE_STYLE.get(tab["state"], ("?", ""))
                 bg = " on grey30" if tab["id"] == app.selected_id else ""
                 start = out.cell_len
                 out.append(f" {i + 1} ", style="bold" + bg)
-                out.append(glyph, style=color + bg)
+                if not tab["alive"]:
+                    out.append("✕ ", style="grey50" + bg)
                 out.append(f" {tab['name']} ", style=("bold" if bg else "") + bg)
                 ranges.append((start, out.cell_len, tab["id"]))
                 out.append("│")
@@ -340,7 +326,7 @@ class ConfirmDialog(ModalScreen):
 
 class HerdApp(App):
     TITLE = "herd"
-    ENABLE_COMMAND_PALETTE = False  # it would steal ctrl+p from the agents
+    ENABLE_COMMAND_PALETTE = False  # it would steal ctrl+p from a tab
     CSS = "#main { width: 1fr; }"
 
     def __init__(self, conn, default_cmd="", prefix="ctrl+space"):
@@ -425,13 +411,7 @@ class HerdApp(App):
         self.exit(message="herd server stopped.")
 
     def update_state(self, state):
-        before = {a["id"]: a["state"] for a in self.agents}
         names = {sp["id"]: sp["name"] for sp in state["spaces"]}
-        for agent in state["agents"]:
-            old = before.get(agent["id"])
-            if old and old != agent["state"] and agent["state"] in NEEDS_YOU and agent["id"] != self.selected_id:
-                self.bell()
-                self.notify(f"{names.get(agent['space'], '?')} / {agent['name']}: {agent['state']}", timeout=4)
         self.spaces, self.agents = state["spaces"], state["agents"]
 
         if self.pending_select and self.find(self.pending_select):
@@ -491,7 +471,7 @@ class HerdApp(App):
 
     def run_prefix_command(self, event):
         ch = event.character
-        if event.key in self.prefix_keys:  # prefix twice sends it to the agent
+        if event.key in self.prefix_keys:  # prefix twice sends it to the selected tab
             if self.selected_id:
                 self.send("input", self.selected_id, KEYMAP.get(event.key, ""))
         elif ch and ch in "123456789":
@@ -542,10 +522,10 @@ class HerdApp(App):
             if confirmed:
                 self.send("close", tab["id"])
 
-        if tab["state"] == "exited":
+        if not tab["alive"]:
             close(True)
         else:
-            self.push_screen(ConfirmDialog(f"Kill the agent in tab '{tab['name']}'?"), close)
+            self.push_screen(ConfirmDialog(f"Kill the process in tab '{tab['name']}'?"), close)
 
     def action_scrollback(self):
         self.terminal.scroll_by_lines(self.terminal.size.height // 2)
@@ -592,27 +572,16 @@ class HerdApp(App):
         space = self.current_space()
         if space is None:
             return
-        count = sum(1 for t in self.tabs(space["id"]) if t["state"] != "exited")
+        count = sum(1 for t in self.tabs(space["id"]) if t["alive"])
 
         def close(confirmed):
             if confirmed:
                 self.send("close_space", space["id"])
 
         if count:
-            self.push_screen(ConfirmDialog(f"Close space '{space['name']}' and kill its {count} agent(s)?"), close)
+            self.push_screen(ConfirmDialog(f"Close space '{space['name']}' and kill its {count} running tab(s)?"), close)
         else:
             close(True)
-
-    def action_next_waiting(self):
-        ordered = [t for sp in self.spaces for t in self.tabs(sp["id"])]
-        ids = [t["id"] for t in ordered]
-        start = ids.index(self.selected_id) if self.selected_id in ids else -1
-        for step in range(1, len(ordered) + 1):
-            tab = ordered[(start + step) % len(ordered)]
-            if tab["state"] in NEEDS_YOU:
-                self.select(tab["id"])
-                return
-        self.notify("Nobody is waiting on you.")
 
     # leaving
 
@@ -620,7 +589,7 @@ class HerdApp(App):
         self.exit()
 
     def action_quit(self):
-        # Textual binds ctrl+q to quit with top priority; hand it to the agent instead
+        # Textual binds ctrl+q to quit with top priority; hand it to the tab instead
         if self.selected_id and self.focused is self.terminal:
             self.send("input", self.selected_id, "\x11")
 
@@ -629,9 +598,9 @@ class HerdApp(App):
             if confirmed:
                 self.send("shutdown")
                 self.server_gone = True
-                self.exit(message="Stopped herd and all agents.")
+                self.exit(message="Stopped herd and all tabs.")
 
-        self.push_screen(ConfirmDialog("Stop herd? This kills ALL agents in every space."), stop)
+        self.push_screen(ConfirmDialog("Stop herd? This kills ALL tabs in every space."), stop)
 
 
 def run(default_cmd="", prefix="ctrl+space"):
@@ -640,7 +609,9 @@ def run(default_cmd="", prefix="ctrl+space"):
     app.run()
     conn.close()
     if not app.server_gone and app.agents:
-        print(f"Detached - {len(app.agents)} agent(s) still running. `herd app` to reattach.")
+        count = sum(1 for tab in app.agents if tab["alive"])
+        if count:
+            print(f"Detached - {count} tab(s) still running. `herd app` to reattach.")
 
 
 class ShortcutCheckApp(App):

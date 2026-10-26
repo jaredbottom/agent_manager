@@ -1,11 +1,10 @@
-"""herd server - owns the agents' terminals so they keep running after the window is closed.
+"""herd server - owns tabs' terminals so they keep running after the window is closed.
 
 Started automatically by `herd app`; stopped with `herd stop` (or prefix then Q in the app).
 """
 
 import base64
 import binascii
-import json
 import os
 import shutil
 import subprocess
@@ -19,14 +18,13 @@ from pathlib import Path
 import pyte
 from wcwidth import wcwidth, wcswidth
 
-from agent_manager.ipc import HERD_HOME, address, authkey, try_connect
+from agent_manager.ipc import address, authkey, try_connect
 
 if os.name == "nt":
     from winpty import PtyProcess
 else:  # lets herd run on Linux/macOS too, handy for development
     from ptyprocess import PtyProcessUnicode as PtyProcess
 
-HERD_DIR = HERD_HOME / "sessions"
 SCROLLBACK = 10000
 BRACKETED_PASTE = 2004 << 5  # how pyte stores private mode ?2004
 CWD_TITLE_PREFIX = "herd-cwd-v1:"
@@ -240,8 +238,6 @@ class Agent:
         self.name = name
         self.cwd = cwd
         self.command = command
-        self.state = "idle" if not command.strip() else "starting"
-        self.since = time.time()
         self.alive = False
         self.version = 0  # bumped whenever the screen changes
         self.lock = threading.Lock()
@@ -272,8 +268,7 @@ class Agent:
     def start(self, rows, cols):
         with self.lock:
             self.screen.resize(rows, cols)
-        env = dict(os.environ, HERD_ID=self.id, HERD_NAME=f"{self.space['name']}/{self.name}",
-                   TERM="xterm-256color", COLORTERM="truecolor")
+        env = dict(os.environ, TERM="xterm-256color", COLORTERM="truecolor")
         self.proc = PtyProcess.spawn(self.argv(), cwd=self.cwd, env=env, dimensions=(rows, cols))
         self.alive = True
         threading.Thread(target=self._read_loop, daemon=True).start()
@@ -289,7 +284,6 @@ class Agent:
                     self.stream.feed(data)
                     self.version += 1
         self.alive = False
-        self.set_state("exited")
         self.version += 1
 
     def write(self, data):
@@ -330,11 +324,6 @@ class Agent:
             except Exception:
                 pass
 
-    def set_state(self, state):
-        if state != self.state:
-            self.since = time.time()
-        self.state = state
-
     def kill(self):
         if self.alive:
             try:
@@ -344,7 +333,7 @@ class Agent:
 
     def meta(self):
         return {"id": self.id, "space": self.space["id"], "name": self.name, "cwd": self.cwd,
-                "state": self.state, "since": self.since}
+                "alive": self.alive}
 
     def snapshot(self, offset):
         """The visible screen (or a scrolled-back view) as rows of (text, style) runs."""
@@ -529,23 +518,6 @@ class Server:
             self.agents[agent.id] = agent
         client.send(("created", agent.id))
 
-    def _poll_hook_states(self):
-        records = {}
-        for f in HERD_DIR.glob("*.json"):
-            try:
-                record = json.loads(f.read_text())
-            except Exception:
-                continue
-            if record.get("herd_id"):
-                records[record["herd_id"]] = record
-        for agent in list(self.agents.values()):
-            record = records.get(agent.id)
-            if agent.alive:
-                if record:
-                    agent.set_state(record["state"])
-                elif not agent.command.strip():
-                    agent.set_state("idle")
-
     def _poll_space_locations(self):
         for space in list(self.spaces):
             shells = [agent for agent in self.agents.values()
@@ -578,7 +550,6 @@ class Server:
             time.sleep(1 / 30)
             if time.time() - last_poll >= 0.5:
                 last_poll = time.time()
-                self._poll_hook_states()
                 self._poll_space_locations()
             with self.lock:
                 meta = {"spaces": [dict(sp) for sp in self.spaces],

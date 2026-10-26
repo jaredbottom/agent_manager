@@ -1,7 +1,7 @@
 [project]
 name = "agent-manager"
 version = "0.1.0"
-description = "A small herdr-style workspace for Claude Code agents"
+description = "A terminal workspace for multiple live sessions"
 readme = "README.md"
 authors = [
     { name = "Jared Bottom" }
