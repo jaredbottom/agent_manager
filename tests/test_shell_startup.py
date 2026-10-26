@@ -64,6 +64,15 @@ class ShellTests(unittest.TestCase):
         visible = "".join(run[0] for run in agent.snapshot(0)["rows"][0])
         self.assertTrue(visible.startswith("XXcdY"))
 
+    def test_modify_other_keys_does_not_turn_on_underline(self):
+        agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
+        agent.stream.feed("\x1b[>4;")
+        agent.stream.feed("2mClaude\x1b[>4m normal ")
+        self.assertFalse(any(agent.screen.buffer[0][x].underscore for x in range(14)))
+        agent.stream.feed("\x1b[4munderlined\x1b[24m plain")
+        self.assertTrue(agent.screen.buffer[0][15].underscore)
+        self.assertFalse(agent.screen.buffer[0][25].underscore)
+
     def test_full_screen_program_restores_shell_screen(self):
         agent = server.Agent({"id": "s", "name": "s", "cwd": "/"}, "shell", "/", "")
         agent.stream.feed("shell prompt")
@@ -241,6 +250,12 @@ class NewTabTests(unittest.IsolatedAsyncioTestCase):
                     "agents": [{"id": "agent", "space": "space", "name": "shell",
                                 "cwd": "/tmp", "alive": True}],
                 }))
+                await pilot.press("ctrl+l")
+                await pilot.pause()
+                messages = []
+                while back.poll():
+                    messages.append(back.recv())
+                self.assertIn(("input", "agent", "\x0c"), messages)
                 await pilot.press("ctrl+space", "c")
                 await pilot.pause()
                 messages = []

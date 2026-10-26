@@ -237,8 +237,9 @@ class TermStream(pyte.Stream):
         self._keyboard_sequence = ""
 
     def feed(self, data):
-        # pyte discards CSI's ?, > and < prefixes before dispatching `u`.
-        # Keep Kitty keyboard negotiation away from CSI u cursor restore.
+        # pyte discards CSI's ?, > and < prefixes before dispatching. That
+        # turns Kitty's CSI ? u into cursor restore and xterm's CSI > 4 ; 2 m
+        # (modifyOtherKeys) into SGR underline. Neither protocol is supported.
         output = []
 
         def flush():
@@ -268,9 +269,9 @@ class TermStream(pyte.Stream):
                     self._keyboard_sequence = ""
             elif char.isdigit() or char == ";":
                 self._keyboard_sequence += char
-            elif char == "u":
+            elif char == "u" or (pending[2] == ">" and char == "m"):
                 flush()
-                if pending[2] == "?":
+                if char == "u" and pending[2] == "?":
                     self.listener.write_process_input("\x1b[?0u")
                 self._keyboard_sequence = ""
             else:
